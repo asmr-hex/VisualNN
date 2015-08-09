@@ -38,7 +38,6 @@ class NeuralNetwork(object):
 				src_layer = int(src_node.group(L_GROUP))
 				src_ids = self.__parseRange(src_node.group(S_GROUP),src_node.group(E_GROUP))
 				src_neurons = self.__getNeurons(src_layer, src_ids)
-
 				dest_node = rexp.search(chain[i+1])	#Get destination neuron(s)
 				dest_layer = int(dest_node.group(L_GROUP))
 				dest_ids = self.__parseRange(dest_node.group(S_GROUP),dest_node.group(E_GROUP))
@@ -47,7 +46,7 @@ class NeuralNetwork(object):
 					src_neuron.addOutput(dest_neurons)	#Add dests to src
 				for dest_neuron in dest_neurons:
 					dest_neuron.addInput(src_neurons)	#Add src to dests
-	
+					
 	def __parseRange(self, start, end):
 		"""Helper function to parse ranges for architecture setup"""
 		end = int(end)
@@ -56,7 +55,7 @@ class NeuralNetwork(object):
 		else:
 			start = int(start)
 		return range(start, end+1)
-
+		
 	def __getNeurons(self, layer, nids):
 		"""Helper function to find neuron, or return a new one"""
 		neurons = []
@@ -100,6 +99,11 @@ class Neuron(object):
 	__outputs = []	#list of output neurons
 	__layer = None
 	__id = None
+	__x = 0	# graphical x positioning
+	__y = 0	# graphical y positioning
+	__r = 0 # graphical radius
+	__c = 0	# graphical color
+	__graphic = None	#graphical representation
 	def __init__(self, layer, nid):
 		"""Inits Neuron with activation function."""
 		self.__layer = layer
@@ -139,6 +143,23 @@ class Neuron(object):
 		"""Get the layer in which this neuron resides."""
 		return self.__layer
 		
+	def setXYR(self, x, y, r):
+		"""Sets the graphical x,y positions."""
+		self.__x = x
+		self.__y = y
+		self.__r = r
+		
+	def setColor(self, color):
+		"""Set graphical color."""
+		self.__c = color
+		
+	def getGraphic(self):
+		"""Returns graphical object for this neuron."""
+		circle = plt.Circle((self.__x, self.__y),
+		 			radius=self.__r, color=self.__c, zorder=2,
+					clip_on=False)
+		return circle
+		
 		
 class Illustrator(object):
 	"""Illustration tool for visualizing neural networks.
@@ -148,50 +169,55 @@ class Illustrator(object):
 	__on = False	#Illustrator on/off
 	__fig = plt.figure()	#Illustrator figure handles
 	__ax = __fig.gca()		#Illustrator axes
-	__nodes = []			#Graphical nodes
+	__ax_xlim = 0	# x limits of network axis
+	__ax_ylim = 0	# y limits of network axis
+	__radii = 1	# graphical neuron radii
+	__neurons = {}			#Graphical neurons
+	__edges = {}			#graphical edges
 	__layer_colors = []		#Layer color
-	__layer_x = []
+	
 	
 	def __init__(self, layers):
 		"""Inits visualization tool for a NeuralNetwork instance."""
-		#self.__ax.plot(np.arange(1,10), np.arange(2,11))
+		self.__configureArchitecture(layers)
 		
-		#get max nodes in layers
+	def __configureArchitecture(self, layers):
+		"""Configures the layout of the graphical network model."""
+		layerWidth = self.__radii * 6
+		layerHeight = self.__radii * 3
+		#Identify the maximum number of nodes per layer across all layers
 		maxNodes = max([len(layers[k]) for k in layers.keys()])
-		L = len(layers)
-		self.__layer_x = np.linspace(0, 10, L)
-		for l in xrange(0,L):
-			y = 10./(len(layers[l])+1)
-			for v in xrange(0, len(layers[l])):
-				circle = mpatches.Circle([self.__layer_x[l], y*(v+1)], 0.4,ec="none")
-				self.__nodes.append(circle)
-				#plot lines
-				outs = layers[l][v].getOutput()
-				for o in xrange(0, len(outs)):
-					lprime = outs[o].getLayer()
-					yprime = 10./(len(layers[lprime])+1)
-					xplt = [self.__layer_x[l], self.__layer_x[lprime]]
-					yplt = [y*(v+1), yprime*(o+1)]
-					self.__ax.plot(xplt,yplt, zorder=1)
-					
-		self.__layer_colors = np.linspace(0, 1, L)
-		collection = PatchCollection(self.__nodes, cmap=plt.cm.hsv, alpha=0.9, zorder = 2)
-		collection.set_array(np.array(self.__layer_colors))
-		
-		self.__ax.add_collection(collection)
-		self.__ax.set_ylim(0,10)
-		self.__ax.set_xlim(0,10)
-		self.__ax.axis('equal')
+		nLayers = len(layers)
+		self.__ax_xlim = nLayers*layerWidth
+		self.__ax_ylim = maxNodes*layerHeight
+		self.__layer_x = np.linspace(0, self.__ax_xlim, nLayers)
+		for l in xrange(0,nLayers):
+			height = (self.__ax_ylim)/(len(layers[l]))
+			self.__neurons[l] = []
+			for n in xrange(0, len(layers[l])):
+				x = self.__layer_x[l]
+				y = n*height + (height/2)
+				layers[l][n].setXYR(x,y, self.__radii)
+				layers[l][n].setColor('#2481F3')
+				self.__neurons[l].append(layers[l][n].getGraphic())
+				self.__ax.add_patch(self.__neurons[l][n])
+				edges = layers[l][n].getOutput()
+				for e in xrange(0, len(edges)):
+					dest_l = edges[e].getLayer()
+					dest_height = (self.__ax_ylim)/(len(layers[dest_l]))
+					edgex = [x, self.__layer_x[dest_l]]
+					edgey = [y, e*dest_height + (dest_height/2)]
+					edgeStr = 'L'+str(l)+'N'+str(n)+'->'
+					edgeStr+= 'L'+str(dest_l)+'N'+str(edges[e].getID())
+					self.__edges[edgeStr] = [[x,y],[edgex[1],edgey[1]]]
+					self.__ax.plot(edgex, edgey, color='k', zorder=1)
+		self.__ax.set_ylim(0,self.__ax_ylim)
+		self.__ax.set_xlim(0,self.__ax_xlim)
+		self.__ax.axis('scaled')
+		self.__ax.axis('Off')
 		plt.show()
 		
 	def draw(self):
 		"""Draws the current NeuralNetwork instance state."""
 		pass
 		
-		
-		
-		
-		
-	
-	
-	
